@@ -13,8 +13,8 @@ def get_device() -> torch.device:
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def get_dataloader(batch_size: int = 256, vocab_size=None) -> tuple[CBOWDataset, torch.utils.data.DataLoader]:
-    dataset = CBOWDataset(vocab_size=vocab_size)
+def get_dataloader(batch_size: int = 256, vocab_size=None, context_size=3) -> tuple[CBOWDataset, torch.utils.data.DataLoader]:
+    dataset = CBOWDataset(vocab_size=vocab_size, context_size=context_size)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
     return dataset, dataloader
 
@@ -60,8 +60,9 @@ def main():
     device = get_device()
 
     vocab_size = 30000
+    context_size = 3
     batch_size = 256
-    dataset, dataloader = get_dataloader(batch_size=batch_size, vocab_size=vocab_size)
+    dataset, dataloader = get_dataloader(batch_size=batch_size, vocab_size=vocab_size, context_size=context_size)
 
     print(f"Vocab Size: {vocab_size} out of a possible {len(dataset.int_to_vocab)}")
 
