@@ -61,7 +61,8 @@ def main():
 
     vocab_size = 30000
     context_size = 3
-    batch_size = 256
+    batch_size = 1024
+    num_epochs = 10
     dataset, dataloader = get_dataloader(batch_size=batch_size, vocab_size=vocab_size, context_size=context_size)
 
     print(f"Vocab Size: {vocab_size} out of a possible {len(dataset.int_to_vocab)}")
@@ -72,7 +73,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
     criterion = torch.nn.CrossEntropyLoss()
 
-    train(model, dataloader, optimizer, criterion, device, run_name)
+    train(model, dataloader, optimizer, criterion, device, run_name, num_epochs)
 
 
 if __name__ == '__main__':
