@@ -4,32 +4,7 @@ import re
 
 import requests
 from datasets import get_dataset_split_names, load_dataset
-
-
-def preprocess(text: str) -> list[str]:
-    if not isinstance(text, str):
-        return ""
-    
-    # Normalise some symbols
-    text = text.lower()
-    text = re.sub(r"&", "and", text)
-    text = re.sub(r"%", "percent", text)
-
-    # Replace specific punctuation with tokens
-    # text = text.replace("-", " ")
-    text = text.replace("-", ' <HYPHEN> ')
-    text = text.replace('.',  ' <PERIOD> ')
-    text = text.replace(',',  ' <COMMA> ')
-    text = text.replace(';',  ' <SEMICOLON> ')
-    text = text.replace('!',  ' <EXCLAMATION_MARK> ')
-    text = text.replace('?',  ' <QUESTION_MARK> ')
-
-    # Remove any other punctuation.
-    text = re.sub(r'[^\w\s<>]', '', text)
-    words = text.split()
-    stats = collections.Counter(words)
-    words = [word for word in words if stats[word] > 5 or word == '<DELIMIT>']
-    return words
+from cbow_utils import preprocess  # Assuming preprocess is defined in cbow_utils.py
 
 def concat_and_process(strings, delimiter="<DELIMIT>"):
     concatenated = f" {delimiter} ".join(strings)
