@@ -85,7 +85,7 @@ def main():
 
     vocab_size = 30000
     context_size = 3
-    batch_size = 1024
+    batch_size = 1024*8
     num_epochs = 10
     dataset, dataloader = get_dataloader(batch_size=batch_size, vocab_size=vocab_size, context_size=context_size)
 

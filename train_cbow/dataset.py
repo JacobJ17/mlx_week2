@@ -15,7 +15,7 @@ class CBOW(Dataset):
         # If vocab_size is set, keep only the first vocab_size items
         if vocab_size is not None:
             # Assume vocab_to_int is sorted by frequency (if not, sort it)
-            items = list(self.vocab_to_int.items())[:vocab_size]
+            items = list(self.vocab_to_int.items())[:vocab_size-1]
             self.vocab_to_int = dict(items)
         self.int_to_vocab = {v: k for k, v in self.vocab_to_int.items()}
         self.corpus_words = pickle.load(open(corpus_path, 'rb'))
