@@ -3,6 +3,8 @@
 data/*
 */data/*
 *wandb*
+*.pth
+train_cbow/text8
 
 
 # Byte-compiled / optimized / DLL files
