@@ -1,7 +1,9 @@
-from datasets import load_dataset, get_dataset_split_names,
+from datasets import load_dataset, get_dataset_split_names
 import random
 from train_cbow.cbow_utils import load_vocab, cbow_tokenize
 import torch
+import torch.nn as nn
+from train_cbow.cbow_model import CBOW
 
 def get_marco_ds_splits():
     # get_dataset_split_names("microsoft/ms_marco", "v1.1")
@@ -54,6 +56,18 @@ class MARCOTripletDataset(torch.utils.data.Dataset):
         pos_tokens = cbow_tokenize(pos, self.vocab_dict)
         neg_tokens = cbow_tokenize(neg, self.vocab_dict)
         return query_tokens, pos_tokens, neg_tokens
+
+def load_frozen_embedding_from_cbow(checkpoint_path, vocab_size, emb_dim):
+    cbow = CBOW(vocab_size, emb_dim)
+    state_dict = torch.load(checkpoint_path, map_location='cpu')
+    # If checkpoint is a dict with 'model_state_dict', extract it
+    if "model_state_dict" in state_dict:
+        state_dict = state_dict["model_state_dict"]
+    cbow.load_state_dict(state_dict)
+    embedding = nn.Embedding(vocab_size, emb_dim)
+    embedding.weight.data.copy_(cbow.embeddings.weight.data)
+    embedding.weight.requires_grad = False  # Freeze weights
+    return embedding
 
 if __name__ == "__main__":
     train_split, val_split, test_split = get_marco_ds_splits()
