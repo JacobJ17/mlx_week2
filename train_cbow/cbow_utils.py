@@ -1,7 +1,12 @@
 import torch
-from cbow_model import CBOW  # Adjust import if needed
+from .cbow_model import CBOW  # Adjust import if needed
+import re
+import collections
+import pickle
 
-def preprocess(text: str) -> list[str]:
+VOCAB_PATH = 'tkn_words_to_ids.pkl'
+
+def preprocess(text: str, min_count=0) -> list[str]:
     if not isinstance(text, str):
         return ""
     
@@ -23,12 +28,28 @@ def preprocess(text: str) -> list[str]:
     text = re.sub(r'[^\w\s<>]', '', text)
     words = text.split()
     stats = collections.Counter(words)
-    words = [word for word in words if stats[word] > 5 or word == '<DELIMIT>']
+    words = [word for word in words if stats[word] > min_count or word == '<DELIMIT>']
     return words
 
 def preprocess_for_inference(text: str) -> list[str]:
     text.replace("<", "").replace(">", "")
     return preprocess(text)
+
+def load_vocab(vocab_path=VOCAB_PATH, vocab_size=None):
+    with open(vocab_path, 'rb') as f:
+        vocab_to_int = pickle.load(f)
+    if vocab_size is not None:
+        # Limit vocab to the first vocab_size items
+        items = list(vocab_to_int.items())[:vocab_size-1]
+        vocab_to_int = dict(items)
+    return vocab_to_int
+
+def cbow_tokenize(text: str, vocab_to_int=None) -> list[int]:
+    if vocab_to_int is None:
+        vocab_to_int = load_vocab()
+    words = preprocess_for_inference(text)
+    tokens = [vocab_to_int.get(word, 0) for word in words]  # Default to 0 for unknown words
+    return tokens
 
 def load_cbow_for_inference(checkpoint_path, vocab_size=30000, emb_dim=128, device=None):
     if device is None:

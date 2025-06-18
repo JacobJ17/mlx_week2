@@ -8,7 +8,7 @@ from cbow_utils import preprocess  # Assuming preprocess is defined in cbow_util
 
 def concat_and_process(strings, delimiter="<DELIMIT>"):
     concatenated = f" {delimiter} ".join(strings)
-    return preprocess(concatenated)
+    return preprocess(concatenated, min_count=5)
 
 # Fetch text8 dataset as a starting point.
 r = requests.get('https://huggingface.co/datasets/ardMLX/text8/resolve/main/text8')
