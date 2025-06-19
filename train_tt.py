@@ -181,7 +181,7 @@ def main():
         vocab_size = None
 
     # --- wandb setup ---
-    wandb.init(
+    run = wandb.init(
         project="two-tower-msmarco",
         config={
             "emb_dim": emb_dim,
@@ -197,8 +197,8 @@ def main():
         }
     )
 
-    # --- Hyperparameters from wandb ---
-    config = wandb.config  # <--- Add this line
+    # --- Hyperparameters from wandb sweep agent ---
+    config = wandb.config 
     rnn_hidden_dim = config.rnn_hidden_dim
     num_rnn_layers = config.num_rnn_layers
     batch_size = config.batch_size
@@ -259,7 +259,9 @@ def main():
     best_recall = 0
     patience = 3  # Number of epochs to wait for improvement
     epochs_no_improve = 0
-    os.makedirs("checkpoints", exist_ok=True)
+    wandb_run_name = run.name or run.id
+    save_path = os.path.join("checkpoints", wandb_run_name)
+    os.makedirs(save_path, exist_ok=True)
     for epoch in range(start_epoch, num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
         epoch_loss = train_one_epoch(model, train_loader, optimizer, device, margin=margin)
@@ -281,7 +283,7 @@ def main():
             "optimizer_state_dict": optimizer.state_dict(),
             "loss": epoch_loss,
         }
-        torch.save(checkpoint, f"checkpoints/two_tower_checkpoint_epoch_{epoch+1}.pth")
+        torch.save(checkpoint, f"{save_path}/two_tower_checkpoint_epoch_{epoch+1}.pth")
         print(f"Checkpoint saved for epoch {epoch+1}")
 
         # --- Early Stopping Logic ---
@@ -289,7 +291,7 @@ def main():
             best_recall = recall
             epochs_no_improve = 0
             # Save the best model
-            torch.save(model.state_dict(), 'checkpoints/best_two_tower_model.pth')
+            torch.save(model.state_dict(), f'{save_path}/best_two_tower_model.pth')
             print("Best model saved.")
         else:
             epochs_no_improve += 1
