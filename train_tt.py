@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 from torch.utils import data
-from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 from torch.utils.data import DataLoader
 from two_tower_utils import load_frozen_embedding_from_cbow
 from two_tower_model import TwoTowerModel
 from data_utils import get_marco_ds_splits, generate_triplets, MARCOTripletDataset
+from embedding_loader import load_embedding_layer
+from train_cbow.cbow_utils import load_vocab
 import wandb
 import os
 from tqdm import tqdm
@@ -15,60 +17,59 @@ torch.cuda.manual_seed(42)
 
 def collate_fn(batch):
     """
-    Collate function for batching triplets with padding.
+    Collate function for batching triplets with padding and lengths.
     batch: list of (query_tokens, pos_tokens, neg_tokens)
-    Return: query_tensor, pos_tensor, neg_tensor (all shape: [batch, seq_len])
+    Return: queries_padded, queries_lens, positives_padded, positives_lens, negatives_padded, negatives_lens
     """
-    # Separate out queries, positives, negatives
     queries, positives, negatives = zip(*batch)
-    
-    # Convert each to a list of tensors
     queries = [torch.tensor(q, dtype=torch.long) for q in queries]
     positives = [torch.tensor(p, dtype=torch.long) for p in positives]
     negatives = [torch.tensor(n, dtype=torch.long) for n in negatives]
-    
-    # Pad each group
+    queries_lens = torch.tensor([len(q) for q in queries], dtype=torch.long)
+    positives_lens = torch.tensor([len(p) for p in positives], dtype=torch.long)
+    negatives_lens = torch.tensor([len(n) for n in negatives], dtype=torch.long)
     queries_padded = pad_sequence(queries, batch_first=True, padding_value=0)
     positives_padded = pad_sequence(positives, batch_first=True, padding_value=0)
     negatives_padded = pad_sequence(negatives, batch_first=True, padding_value=0)
-    
-    return queries_padded, positives_padded, negatives_padded
+    return queries_padded, queries_lens, positives_padded, positives_lens, negatives_padded, negatives_lens
+
+def encode_with_packing(embedding, rnn, token_ids, lengths):
+    # Sort by length (descending)
+    lengths, perm_idx = lengths.sort(0, descending=True)
+    token_ids = token_ids[perm_idx]
+    embedded = embedding(token_ids)
+    packed = pack_padded_sequence(embedded, lengths.cpu(), batch_first=True, enforce_sorted=True)
+    output, hidden = rnn(packed)
+    if isinstance(hidden, tuple):  # LSTM
+        hidden = hidden[0]
+    # Undo the sorting
+    _, unperm_idx = perm_idx.sort(0)
+    return hidden[-1][unperm_idx]
 
 def train_one_epoch(model, dataloader, optimizer, device, margin=0.2):
-    """
-    Train the model for one epoch.
-    """
     model.train()
     total_loss = 0
     num_batches = 0
-    
     for batch in tqdm(dataloader, desc='Training', leave=False):
-        # Unpack batch and move to device
-        query_tokens, pos_tokens, neg_tokens = batch
+        query_tokens, query_lens, pos_tokens, pos_lens, neg_tokens, neg_lens = batch
         query_tokens = query_tokens.to(device)
+        query_lens = query_lens.to(device)
         pos_tokens = pos_tokens.to(device)
+        pos_lens = pos_lens.to(device)
         neg_tokens = neg_tokens.to(device)
-        
-        # Forward pass through model
-        query_vec, pos_doc_vec, neg_doc_vec = model(query_tokens, pos_tokens, neg_tokens)
-        
-        # Compute cosine similarities
-        pos_sim = torch.nn.functional.cosine_similarity(query_vec, pos_doc_vec, dim=1)
-        neg_sim = torch.nn.functional.cosine_similarity(query_vec, neg_doc_vec, dim=1)
-        
-        # Compute triplet loss: encourage pos_sim > neg_sim by a margin
-        # Use relu to implement loss = max(neg_sim - pos_sim + margin, 0)
+        neg_lens = neg_lens.to(device)
+        # Use packed sequence encoding
+        query_vec = encode_with_packing(model.embedding, model.query_encoder, query_tokens, query_lens)
+        pos_vec = encode_with_packing(model.embedding, model.document_encoder, pos_tokens, pos_lens)
+        neg_vec = encode_with_packing(model.embedding, model.document_encoder, neg_tokens, neg_lens)
+        pos_sim = torch.nn.functional.cosine_similarity(query_vec, pos_vec)
+        neg_sim = torch.nn.functional.cosine_similarity(query_vec, neg_vec)
         triplet_loss = torch.nn.functional.relu(neg_sim - pos_sim + margin).mean()
-        
-        # Backpropagation and optimizer step
         optimizer.zero_grad()
         triplet_loss.backward()
         optimizer.step()
-        
-        # Accumulate loss
         total_loss += triplet_loss.item()
         num_batches += 1
-    
     return total_loss / num_batches
 
 def validate_one_epoch(model, dataloader, device, margin=0.2):
@@ -77,34 +78,42 @@ def validate_one_epoch(model, dataloader, device, margin=0.2):
     num_batches = 0
     with torch.no_grad():
         for batch in tqdm(dataloader, desc='Validating', leave=False):
-            query_tokens, pos_tokens, neg_tokens = batch
+            query_tokens, query_lens, pos_tokens, pos_lens, neg_tokens, neg_lens = batch
             query_tokens = query_tokens.to(device)
+            query_lens = query_lens.to(device)
             pos_tokens = pos_tokens.to(device)
+            pos_lens = pos_lens.to(device)
             neg_tokens = neg_tokens.to(device)
-            query_vec, pos_doc_vec, neg_doc_vec = model(query_tokens, pos_tokens, neg_tokens)
-            pos_sim = torch.nn.functional.cosine_similarity(query_vec, pos_doc_vec, dim=1)
-            neg_sim = torch.nn.functional.cosine_similarity(query_vec, neg_doc_vec, dim=1)
+            neg_lens = neg_lens.to(device)
+            query_vec = encode_with_packing(model.embedding, model.query_encoder, query_tokens, query_lens)
+            pos_vec = encode_with_packing(model.embedding, model.document_encoder, pos_tokens, pos_lens)
+            neg_vec = encode_with_packing(model.embedding, model.document_encoder, neg_tokens, neg_lens)
+            pos_sim = torch.nn.functional.cosine_similarity(query_vec, pos_vec)
+            neg_sim = torch.nn.functional.cosine_similarity(query_vec, neg_vec)
             triplet_loss = torch.nn.functional.relu(neg_sim - pos_sim + margin).mean()
             total_loss += triplet_loss.item()
             num_batches += 1
     return total_loss / num_batches
 
-def recall_at_k(model, dataloader, device, k=5):
+def recall_at_k(model, dataloader, device, k=1):
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
         for batch in tqdm(dataloader, desc=f'Recall@{k}', leave=False):
-            query_tokens, pos_tokens, neg_tokens = batch
+            query_tokens, query_lens, pos_tokens, pos_lens, neg_tokens, neg_lens = batch
             query_tokens = query_tokens.to(device)
+            query_lens = query_lens.to(device)
             pos_tokens = pos_tokens.to(device)
+            pos_lens = pos_lens.to(device)
             neg_tokens = neg_tokens.to(device)
+            neg_lens = neg_lens.to(device)
             batch_size = query_tokens.size(0)
 
             # Encode queries and all docs (positive and negative)
-            query_vecs = model.encode_query(query_tokens)  # (batch, hidden_dim)
-            pos_vecs = model.encode_document(pos_tokens)   # (batch, hidden_dim)
-            neg_vecs = model.encode_document(neg_tokens)   # (batch, hidden_dim)
+            query_vecs = encode_with_packing(model.embedding, model.query_encoder, query_tokens, query_lens)  # (batch, hidden_dim)
+            pos_vecs = encode_with_packing(model.embedding, model.document_encoder, pos_tokens, pos_lens)   # (batch, hidden_dim)
+            neg_vecs = encode_with_packing(model.embedding, model.document_encoder, neg_tokens, neg_lens)   # (batch, hidden_dim)
 
             # For each query, create a candidate set: [pos_doc, neg_doc]
             # (You can extend this to more negatives if you have them)
@@ -125,23 +134,31 @@ def recall_at_k(model, dataloader, device, k=5):
 
 def main():
     # --- Hyperparameters ---
-    vocab_size = 30000
-    emb_dim = 128
-    rnn_hidden_dim = 128
-    num_rnn_layers = 1
-    batch_size = 32
+    rnn_hidden_dim = 256
+    num_rnn_layers = 2
+    batch_size = 64
     num_epochs = 5
     margin = 0.2
-    cbow_checkpoint = "train_cbow/checkpoints/cbow_2025_06_17__13_43_21.epoch_10.pth"
+    dropout = 0.2
     vocab_path = "train_cbow/tkn_words_to_ids.pkl"
     lr = 1e-3
     checkpoint_path = None  # Set to a checkpoint file to resume, or None to start fresh
+
+    # --- Embedding Configuration ---
+    embedding_type = 'glove'  # 'cbow', 'glove', or 'random'
+    embedding_path = 'data/glove.6B.300d.txt'  # Path to your GloVe file or CBOW checkpoint
+    emb_dim = 300  # Changed to 300 for GloVe or 128 for CBOW
+    freeze_embeddings = False  # Set to False to enable fine-tuning
+    cbow_vocab_size = 30000  # Hardcoded CBOW vocabulary size (this does not matter for GloVe)
+    if embedding_type == 'cbow':
+        vocab_size = cbow_vocab_size
+    else:
+        vocab_size = None
 
     # --- wandb setup ---
     wandb.init(
         project="two-tower-msmarco",
         config={
-            "vocab_size": vocab_size,
             "emb_dim": emb_dim,
             "rnn_hidden_dim": rnn_hidden_dim,
             "num_rnn_layers": num_rnn_layers,
@@ -149,6 +166,9 @@ def main():
             "num_epochs": num_epochs,
             "margin": margin,
             "learning_rate": lr,
+            "dropout": dropout,
+            "embedding_type": embedding_type,
+            "freeze_embeddings": freeze_embeddings,
         }
     )
 
@@ -172,10 +192,21 @@ def main():
     test_dataset = MARCOTripletDataset(test_triplets, vocab_path=vocab_path, vocab_size=vocab_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-    # --- Model and Optimizer ---
-    print("Loading pretrained embeddings...")
-    embedding_layer = load_frozen_embedding_from_cbow(cbow_checkpoint, vocab_size, emb_dim)
-    model = TwoTowerModel(embedding_layer, emb_dim, rnn_hidden_dim, num_rnn_layers).to(device)
+    # --- Load Vocabulary and Embedding Layer ---
+    print("Loading vocabulary...")
+    vocab = load_vocab(vocab_path=vocab_path, vocab_size=vocab_size)
+    
+    print(f"Loading {embedding_type} embeddings...")
+    embedding_layer = load_embedding_layer(
+        embedding_type=embedding_type,
+        vocab=vocab,
+        emb_dim=emb_dim,
+        embedding_path=embedding_path,
+        freeze=freeze_embeddings,
+        cbow_vocab_size=cbow_vocab_size
+    )
+    
+    model = TwoTowerModel(embedding_layer, emb_dim, rnn_hidden_dim, num_rnn_layers, dropout=dropout).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # --- Checkpoint loading ---
@@ -209,20 +240,20 @@ def main():
         torch.save(checkpoint, f"two_tower_checkpoint_epoch_{epoch+1}.pth")
         print(f"Checkpoint saved for epoch {epoch+1}")
 
-        # Calculate and log Recall@5
-        recall = recall_at_k(model, val_loader, device, k=5)
-        print(f"Recall@5: {recall:.4f}")
-        wandb.log({"epoch": epoch+1, "val_recall@5": recall})
+        # Calculate and log Recall@1
+        recall = recall_at_k(model, val_loader, device, k=1)
+        print(f"Recall@1: {recall:.4f}")
+        wandb.log({"epoch": epoch+1, "val_recall@1": recall})
 
     # After training:
     test_loss = validate_one_epoch(model, test_loader, device, margin=margin)
     print(f"Test loss: {test_loss:.4f}")
     wandb.log({"test_loss": test_loss})
 
-    # Calculate and log Test Recall@5
-    test_recall_5, test_recall_10 = recall_at_k(model, test_loader, device, k=5), recall_at_k(model, test_loader, device, k=10)
-    print(f"Test Recall@5: {test_recall_5:.4f}, Test Recall@10: {test_recall_10:.4f}")
-    wandb.log({"test_recall@5": test_recall_5, "test_recall@10": test_recall_10})
+    # Calculate and log Test Recall@1
+    test_recall_1 = recall_at_k(model, test_loader, device, k=1)
+    print(f"Test Recall@1: {test_recall_1:.4f}")
+    wandb.log({"test_recall@1": test_recall_1})
 
     # Save final model
     print("Saving final model...")

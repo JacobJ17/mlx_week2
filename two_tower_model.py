@@ -8,7 +8,7 @@ class TwoTowerModel(nn.Module):
     Uses a shared embedding layer and two separate RNN encoders
     (one for queries, one for documents).
     """
-    def __init__(self, embedding_layer, embedding_dim, rnn_hidden_dim, num_rnn_layers=1, rnn_type='lstm'):
+    def __init__(self, embedding_layer, embedding_dim, rnn_hidden_dim, num_rnn_layers=1, rnn_type='lstm', dropout=0.2):
         """
         Args:
             embedding_layer (nn.Embedding): Pretrained embedding layer (shared).
@@ -16,12 +16,14 @@ class TwoTowerModel(nn.Module):
             rnn_hidden_dim (int): Hidden state size for RNNs.
             num_rnn_layers (int): Number of RNN layers.
             rnn_type (str): 'lstm' or 'gru'.
+            dropout (float): Dropout rate for regularization.
         """
         super().__init__()
         self.embedding = embedding_layer
         self.embedding_dim = embedding_dim
         self.rnn_hidden_dim = rnn_hidden_dim
         self.num_rnn_layers = num_rnn_layers
+        self.dropout = nn.Dropout(dropout)
 
         # Choose RNN type
         if rnn_type.lower() == 'lstm':
@@ -36,13 +38,15 @@ class TwoTowerModel(nn.Module):
             input_size=embedding_dim,
             hidden_size=rnn_hidden_dim,
             num_layers=num_rnn_layers,
-            batch_first=True
+            batch_first=True,
+            dropout=dropout if num_rnn_layers > 1 else 0  # Only for multi-layer RNNs
         )
         self.document_encoder = rnn_class(
             input_size=embedding_dim,
             hidden_size=rnn_hidden_dim,
             num_layers=num_rnn_layers,
-            batch_first=True
+            batch_first=True,
+            dropout=dropout if num_rnn_layers > 1 else 0  # Only for multi-layer RNNs
         )
 
     def encode_query(self, query_token_ids):
@@ -58,8 +62,8 @@ class TwoTowerModel(nn.Module):
         # For LSTM, hidden_state is a tuple (h_n, c_n)
         if isinstance(hidden_state, tuple):
             hidden_state = hidden_state[0]
-        # Use the last layer's hidden state
-        return hidden_state[-1]
+        # Use the last layer's hidden state and apply dropout
+        return self.dropout(hidden_state[-1])
 
     def encode_document(self, document_token_ids):
         """
@@ -73,7 +77,8 @@ class TwoTowerModel(nn.Module):
         rnn_output, hidden_state = self.document_encoder(embedded_documents)
         if isinstance(hidden_state, tuple):
             hidden_state = hidden_state[0]
-        return hidden_state[-1]
+        # Apply dropout to the final hidden state
+        return self.dropout(hidden_state[-1])
 
     def forward(self, query_token_ids, positive_doc_token_ids, negative_doc_token_ids):
         """
