@@ -166,7 +166,7 @@ def main():
     embedding_path = args.embedding_path
     emb_dim = args.emb_dim
     checkpoint_path = args.checkpoint_path
-
+    rnn_type = "gru"
     vocab_path = "train_cbow/tkn_words_to_ids.pkl"
 
     # --- Embedding Configuration ---
@@ -194,6 +194,7 @@ def main():
             "dropout": dropout,
             "embedding_type": embedding_type,
             "freeze_embeddings": freeze_embeddings,
+            "rnn_type": rnn_type,
         }
     )
 
@@ -241,7 +242,7 @@ def main():
     )
     print("Embedding requires_grad:", embedding_layer.weight.requires_grad)
     
-    model = TwoTowerModel(embedding_layer, emb_dim, rnn_hidden_dim, num_rnn_layers, dropout=dropout).to(device)
+    model = TwoTowerModel(embedding_layer, emb_dim, rnn_hidden_dim, num_rnn_layers, rnn_type=rnn_type, dropout=dropout).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 
     # --- Checkpoint loading ---

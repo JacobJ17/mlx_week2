@@ -8,7 +8,7 @@ class TwoTowerModel(nn.Module):
     Uses a shared embedding layer and two separate RNN encoders
     (one for queries, one for documents).
     """
-    def __init__(self, embedding_layer, embedding_dim, rnn_hidden_dim, num_rnn_layers=1, rnn_type='lstm', dropout=0.2):
+    def __init__(self, embedding_layer, embedding_dim, rnn_hidden_dim, num_rnn_layers=1, rnn_type='gru', dropout=0.2):
         """
         Args:
             embedding_layer (nn.Embedding): Pretrained embedding layer (shared).
