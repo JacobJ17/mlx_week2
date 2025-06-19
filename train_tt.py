@@ -213,7 +213,7 @@ def main():
     print("Loading dataset splits...")
     train_split, val_split, test_split = get_marco_ds_splits()
     print("Generating triplets...")
-    train_triplets = generate_triplets(train_split, max_negatives_per_query=5)
+    train_triplets = generate_triplets(train_split, max_negatives_per_query=7)
     print(f"Number of training triplets: {len(train_triplets)}")
     train_dataset = MARCOTripletDataset(train_triplets, vocab_path=vocab_path, vocab_size=vocab_size)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
