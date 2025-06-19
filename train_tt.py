@@ -138,7 +138,7 @@ def parse_args():
     parser.add_argument("--rnn_hidden_dim", type=int, default=64)
     parser.add_argument("--num_rnn_layers", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--num_epochs", type=int, default=25)
+    parser.add_argument("--num_epochs", type=int, default=10)
     parser.add_argument("--margin", type=float, default=0.2)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--lr", type=float, default=5e-4)
@@ -203,6 +203,7 @@ def main():
     rnn_hidden_dim = config.rnn_hidden_dim
     num_rnn_layers = config.num_rnn_layers
     batch_size = config.batch_size
+    margin = config.margin
     dropout = config.dropout
     lr = config.learning_rate
     freeze_embeddings = config.freeze_embeddings
@@ -214,7 +215,7 @@ def main():
     print("Loading dataset splits...")
     train_split, val_split, test_split = get_marco_ds_splits()
     print("Generating triplets...")
-    train_triplets = generate_triplets(train_split, max_negatives_per_query=7)
+    train_triplets = generate_triplets(train_split, max_negatives_per_query=2)
     print(f"Number of training triplets: {len(train_triplets)}")
     train_dataset = MARCOTripletDataset(train_triplets, vocab_path=vocab_path, vocab_size=vocab_size)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)

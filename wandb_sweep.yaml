@@ -12,9 +12,12 @@ parameters:
   rnn_hidden_dim:
     values: [64, 128, 256]
   num_rnn_layers:
-    values: [1, 2]
+    values: [1]
   dropout:
     min: 0.1
     max: 0.4
   freeze_embeddings:
     values: [True, False]
+  margin:
+    min: 0.2
+    max: 0.5
