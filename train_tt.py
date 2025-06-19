@@ -134,14 +134,14 @@ def recall_at_k(model, dataloader, device, k=1):
 
 def main():
     # --- Hyperparameters ---
-    rnn_hidden_dim = 128
+    rnn_hidden_dim = 64
     num_rnn_layers = 1
     batch_size = 64
-    num_epochs = 5
+    num_epochs = 25
     margin = 0.2
-    dropout = 0.25
+    dropout = 0.2
     vocab_path = "train_cbow/tkn_words_to_ids.pkl"
-    lr = 1e-3
+    lr = 5e-4
     checkpoint_path = None  # Set to a checkpoint file to resume, or None to start fresh
 
     # --- Embedding Configuration ---
@@ -171,6 +171,15 @@ def main():
             "freeze_embeddings": freeze_embeddings,
         }
     )
+
+    # --- Hyperparameters from wandb ---
+    config = wandb.config  # <--- Add this line
+    rnn_hidden_dim = config.rnn_hidden_dim
+    num_rnn_layers = config.num_rnn_layers
+    batch_size = config.batch_size
+    dropout = config.dropout
+    lr = config.learning_rate
+    freeze_embeddings = config.freeze_embeddings
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")

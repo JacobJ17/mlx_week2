@@ -2,7 +2,7 @@
 */wandb/*
 data/*
 */data/*
-*wandb*
+*wandb*/
 *.pth
 train_cbow/text8
 
