@@ -10,6 +10,7 @@ from embedding_loader import load_embedding_layer
 from train_cbow.cbow_utils import load_vocab
 import wandb
 import os
+import argparse
 from tqdm import tqdm
 
 torch.manual_seed(42)
@@ -132,17 +133,41 @@ def recall_at_k(model, dataloader, device, k=1):
 
     return correct / total
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rnn_hidden_dim", type=int, default=64)
+    parser.add_argument("--num_rnn_layers", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--num_epochs", type=int, default=25)
+    parser.add_argument("--margin", type=float, default=0.2)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--freeze_embeddings", type=bool, default=True)
+    parser.add_argument("--embedding_type", type=str, default="glove")
+    parser.add_argument("--embedding_path", type=str, default="data/glove.6B.300d.txt")
+    parser.add_argument("--emb_dim", type=int, default=300)
+    parser.add_argument("--checkpoint_path", type=str, default=None)
+
+    return parser.parse_args()
+
 def main():
+    
     # --- Hyperparameters ---
-    rnn_hidden_dim = 64
-    num_rnn_layers = 1
-    batch_size = 64
-    num_epochs = 25
-    margin = 0.2
-    dropout = 0.2
+    args = parse_args()
+    rnn_hidden_dim = args.rnn_hidden_dim
+    num_rnn_layers = args.num_rnn_layers
+    batch_size = args.batch_size
+    num_epochs = args.num_epochs
+    margin = args.margin
+    dropout = args.dropout
+    lr = args.lr
+    freeze_embeddings = args.freeze_embeddings
+    embedding_type = args.embedding_type
+    embedding_path = args.embedding_path
+    emb_dim = args.emb_dim
+    checkpoint_path = args.checkpoint_path
+
     vocab_path = "train_cbow/tkn_words_to_ids.pkl"
-    lr = 5e-4
-    checkpoint_path = None  # Set to a checkpoint file to resume, or None to start fresh
 
     # --- Embedding Configuration ---
     embedding_type = 'glove'  # 'cbow', 'glove', or 'random'
