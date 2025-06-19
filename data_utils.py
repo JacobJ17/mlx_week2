@@ -26,10 +26,10 @@ def generate_triplets(dataset_split, max_negatives_per_query=1):
             continue  # Skip if no usable data
 
         for pos in positives:
-            for _ in range(max_negatives_per_query):
-                neg = random.choice(negatives)
+            num_negs = min(max_negatives_per_query, len(negatives))
+            unique_negs = random.sample(negatives, num_negs)
+            for neg in unique_negs:
                 triplets.append((query, pos, neg))
-
     return triplets
 
 def generate_triplet_tokens(triplets, vocab_dict=None):

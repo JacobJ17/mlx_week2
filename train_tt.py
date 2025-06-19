@@ -134,12 +134,12 @@ def recall_at_k(model, dataloader, device, k=1):
 
 def main():
     # --- Hyperparameters ---
-    rnn_hidden_dim = 256
-    num_rnn_layers = 2
+    rnn_hidden_dim = 128
+    num_rnn_layers = 1
     batch_size = 64
     num_epochs = 5
     margin = 0.2
-    dropout = 0.2
+    dropout = 0.25
     vocab_path = "train_cbow/tkn_words_to_ids.pkl"
     lr = 1e-3
     checkpoint_path = None  # Set to a checkpoint file to resume, or None to start fresh
@@ -148,7 +148,7 @@ def main():
     embedding_type = 'glove'  # 'cbow', 'glove', or 'random'
     embedding_path = 'data/glove.6B.300d.txt'  # Path to your GloVe file or CBOW checkpoint
     emb_dim = 300  # Changed to 300 for GloVe or 128 for CBOW
-    freeze_embeddings = False  # Set to False to enable fine-tuning
+    freeze_embeddings = True  # Set to False to enable fine-tuning
     cbow_vocab_size = 30000  # Hardcoded CBOW vocabulary size (this does not matter for GloVe)
     if embedding_type == 'cbow':
         vocab_size = cbow_vocab_size
@@ -179,16 +179,16 @@ def main():
     print("Loading dataset splits...")
     train_split, val_split, test_split = get_marco_ds_splits()
     print("Generating triplets...")
-    train_triplets = generate_triplets(train_split, max_negatives_per_query=1)
+    train_triplets = generate_triplets(train_split, max_negatives_per_query=5)
     print(f"Number of training triplets: {len(train_triplets)}")
     train_dataset = MARCOTripletDataset(train_triplets, vocab_path=vocab_path, vocab_size=vocab_size)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
 
-    val_triplets = generate_triplets(val_split, max_negatives_per_query=1)
+    val_triplets = generate_triplets(val_split, max_negatives_per_query=2)
     val_dataset = MARCOTripletDataset(val_triplets, vocab_path=vocab_path, vocab_size=vocab_size)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-    test_triplets = generate_triplets(test_split, max_negatives_per_query=1)
+    test_triplets = generate_triplets(test_split, max_negatives_per_query=2)
     test_dataset = MARCOTripletDataset(test_triplets, vocab_path=vocab_path, vocab_size=vocab_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
@@ -205,9 +205,10 @@ def main():
         freeze=freeze_embeddings,
         cbow_vocab_size=cbow_vocab_size
     )
+    print("Embedding requires_grad:", embedding_layer.weight.requires_grad)
     
     model = TwoTowerModel(embedding_layer, emb_dim, rnn_hidden_dim, num_rnn_layers, dropout=dropout).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 
     # --- Checkpoint loading ---
     start_epoch = 0
@@ -221,6 +222,10 @@ def main():
 
     # --- Training Loop ---
     print("Starting training...")
+    best_recall = 0
+    patience = 3  # Number of epochs to wait for improvement
+    epochs_no_improve = 0
+    os.makedirs("checkpoints", exist_ok=True)
     for epoch in range(start_epoch, num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
         epoch_loss = train_one_epoch(model, train_loader, optimizer, device, margin=margin)
@@ -230,6 +235,11 @@ def main():
         print(f"Validation loss: {val_loss:.4f}")
         wandb.log({"epoch": epoch+1, "train_loss": epoch_loss, "val_loss": val_loss})
 
+        # Calculate and log Recall@1
+        recall = recall_at_k(model, val_loader, device, k=1)
+        print(f"Recall@1: {recall:.4f}")
+        wandb.log({"epoch": epoch+1, "val_recall@1": recall})
+
         # Save checkpoint
         checkpoint = {
             "epoch": epoch+1,
@@ -237,13 +247,22 @@ def main():
             "optimizer_state_dict": optimizer.state_dict(),
             "loss": epoch_loss,
         }
-        torch.save(checkpoint, f"two_tower_checkpoint_epoch_{epoch+1}.pth")
+        torch.save(checkpoint, f"checkpoints/two_tower_checkpoint_epoch_{epoch+1}.pth")
         print(f"Checkpoint saved for epoch {epoch+1}")
 
-        # Calculate and log Recall@1
-        recall = recall_at_k(model, val_loader, device, k=1)
-        print(f"Recall@1: {recall:.4f}")
-        wandb.log({"epoch": epoch+1, "val_recall@1": recall})
+        # --- Early Stopping Logic ---
+        if recall > best_recall:
+            best_recall = recall
+            epochs_no_improve = 0
+            # Save the best model
+            torch.save(model.state_dict(), 'checkpoints/best_two_tower_model.pth')
+            print("Best model saved.")
+        else:
+            epochs_no_improve += 1
+            print(f"No improvement in recall for {epochs_no_improve} epoch(s).")
+            if epochs_no_improve >= patience:
+                print("Early stopping triggered.")
+                break
 
     # After training:
     test_loss = validate_one_epoch(model, test_loader, device, margin=margin)
