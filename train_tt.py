@@ -135,13 +135,13 @@ def recall_at_k(model, dataloader, device, k=1):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rnn_hidden_dim", type=int, default=64)
+    parser.add_argument("--rnn_hidden_dim", type=int, default=256)
     parser.add_argument("--num_rnn_layers", type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--num_epochs", type=int, default=10)
-    parser.add_argument("--margin", type=float, default=0.2)
-    parser.add_argument("--dropout", type=float, default=0.2)
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--margin", type=float, default=0.28114883900596277)
+    parser.add_argument("--dropout", type=float, default=0.17360380872013242)
+    parser.add_argument("--lr", type=float, default=0.0018616575283672315)
     parser.add_argument("--freeze_embeddings", type=bool, default=True)
     parser.add_argument("--embedding_type", type=str, default="glove")
     parser.add_argument("--embedding_path", type=str, default="data/glove.6B.300d.txt")
@@ -215,7 +215,7 @@ def main():
     print("Loading dataset splits...")
     train_split, val_split, test_split = get_marco_ds_splits()
     print("Generating triplets...")
-    train_triplets = generate_triplets(train_split, max_negatives_per_query=2)
+    train_triplets = generate_triplets(train_split, max_negatives_per_query=6)
     print(f"Number of training triplets: {len(train_triplets)}")
     train_dataset = MARCOTripletDataset(train_triplets, vocab_path=vocab_path, vocab_size=vocab_size)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
@@ -284,6 +284,15 @@ def main():
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "loss": epoch_loss,
+            "model_args": {
+                "embedding_dim": emb_dim,
+                "hidden_dim": rnn_hidden_dim,
+                "num_layers": num_rnn_layers,
+                "dropout": dropout,
+                "rnn_type": rnn_type,
+                "vocab_size": vocab_size,
+                # Add more if needed
+            },
         }
         torch.save(checkpoint, f"{save_path}/two_tower_checkpoint_epoch_{epoch+1}.pth")
         print(f"Checkpoint saved for epoch {epoch+1}")
@@ -293,7 +302,11 @@ def main():
             best_recall = recall
             epochs_no_improve = 0
             # Save the best model
-            torch.save(model.state_dict(), f'{save_path}/best_two_tower_model.pth')
+            best_checkpoint = {
+                "model_state_dict": model.state_dict(),
+                "model_args": checkpoint["model_args"],
+            }
+            torch.save(best_checkpoint, f'{save_path}/best_two_tower_model.pth')
             print("Best model saved.")
         else:
             epochs_no_improve += 1
